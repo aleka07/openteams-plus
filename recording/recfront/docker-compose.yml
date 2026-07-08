@@ -1,0 +1,46 @@
+# Recordings web front (Filebrowser) for the OpenTeams+ recording module.
+#
+# Serves /srv/jitsi-recordings read-only over a browser UI: browse folders,
+# stream the combined mp4, download per-speaker WAVs and the json metadata.
+#
+# Run it as its own stack next to the jitsi stack:
+#     docker compose -f docker-compose.yml up -d
+#
+# It joins the shared reverse-proxy network so a containerized proxy
+# (Caddy/Traefik/nginx) reaches it by the alias "recfront" (see caddy/Caddyfile.example).
+#
+# Placeholders to adapt:
+#   proxy                  -> name of your existing external reverse-proxy network
+#                             (rename to match yours, or `docker network create proxy`).
+#   /srv/jitsi-recordings  -> host recordings root (must match the jibri/jmr mounts).
+#   127.0.0.1:13200        -> optional loopback port for local debugging; drop it if you
+#                             only reach filebrowser through the proxy network.
+#
+# First run creates ./data/filebrowser.db with a default admin/admin login —
+# log in once and change the password immediately (it is the only auth in front
+# of every recording).
+services:
+  recfront:
+    image: filebrowser/filebrowser:v2@sha256:c4c627f687668c5a02ab410d8473712c77be7f1f0ea4f8d624d2a1392c495e76
+    container_name: recfront
+    restart: unless-stopped
+    ports:
+      # loopback only; the proxy reaches the container in-network via the alias below
+      - "127.0.0.1:13200:80"
+    volumes:
+      - /srv/jitsi-recordings:/srv:ro
+      - ./data:/database
+      - ./config:/config
+    networks:
+      default: {}
+      proxy:
+        aliases:
+          - recfront
+
+networks:
+  default: {}
+  # The external reverse-proxy network your proxy container also joins.
+  # In the reference deployment this was an existing "chatwoot_default" network;
+  # rename to match yours (or `docker network create proxy`).
+  proxy:
+    external: true

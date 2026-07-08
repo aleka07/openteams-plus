@@ -1,0 +1,27 @@
+# Caddyfile.example — reverse-proxy site blocks for the OpenTeams+ recording module.
+#
+# Assumes a CONTAINERIZED Caddy that shares the external "proxy" network with the
+# jitsi `web` container (alias `jitsi-web`) and the `recfront` filebrowser container
+# (alias `recfront`). Those aliases are set in:
+#   - compose/docker-compose.override.yml   (web -> jitsi-web)
+#   - recfront/docker-compose.yml           (recfront -> recfront)
+#
+# Caddy terminates TLS (automatic Let's Encrypt) and proxies to the containers by
+# their in-network alias on plain HTTP port 80. Note: Jitsi media (JVB) does NOT go
+# through Caddy — open UDP 10000 to the host directly in your firewall.
+#
+# Replace meet.example.com / rec.example.com with your real hostnames and point
+# their DNS A records at <SERVER_PUBLIC_IP>.
+
+# --- Jitsi Meet -----------------------------------------------------------------
+meet.example.com {
+	# `jitsi-web` is the network alias of the docker-jitsi-meet `web` container.
+	reverse_proxy jitsi-web:80
+}
+
+# --- Recordings front (Filebrowser) ---------------------------------------------
+rec.example.com {
+	# `recfront` is the network alias of the filebrowser container.
+	# Filebrowser has its own login; this is the only auth in front of the recordings.
+	reverse_proxy recfront:80
+}

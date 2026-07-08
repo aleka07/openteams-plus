@@ -1,0 +1,66 @@
+# Recording module override for docker-jitsi-meet (stable-11031).
+#
+# Apply it alongside the stock stack. With explicit -f flags the override must be
+# listed EXPLICITLY, and after the base files so it wins, e.g.:
+#
+#   docker compose -f docker-compose.yml -f jibri.yml \
+#                  -f docker-compose.override.yml up -d
+#
+# What it wires:
+#   web     - joins the shared reverse-proxy network so a containerized proxy
+#             (Caddy/Traefik/nginx) can reach it by the alias "jitsi-web".
+#   jibri   - /dev/snd passthrough (needs host snd-aloop) + recordings bind mount.
+#   prosody - the _meta staging dir where mod_participant_log writes participants.json.
+#   jmr     - the per-participant multitrack audio recorder + Phase-4 finalize mount.
+#
+# Placeholders to adapt:
+#   proxy                     -> name of your existing external reverse-proxy network.
+#   /srv/jitsi-recordings     -> host recordings root (any path you like).
+#   <RECORDINGS_GID>          -> gid that owns the recordings tree (see README ownership caveats).
+services:
+  web:
+    networks:
+      proxy:
+        aliases:
+          - jitsi-web
+
+  jibri:
+    volumes:
+      # host recordings root, seen by jibri finalize.sh as /recordings-out
+      - /srv/jitsi-recordings:/recordings-out:Z
+    devices:
+      # requires host kernel module snd-aloop (linux-modules-extra)
+      - /dev/snd:/dev/snd
+
+  # Phase 4: prosody writes live participants.json into the shared _meta staging dir.
+  # /meta maps to /srv/jitsi-recordings/_multitrack/_meta on the host, which JMR sees
+  # as /data/_meta. Prosody runs as uid 100, so that host dir must be chowned
+  # 100:<RECORDINGS_GID> and be group-writable (see README).
+  prosody:
+    volumes:
+      - /srv/jitsi-recordings/_multitrack/_meta:/meta:Z
+
+  # Phase 3: per-participant multitrack audio recorder (JMR).
+  # Receives media-json from the JVB exporter, writes one Opus track per participant (.mka).
+  # Phase 4: on session end JMR runs the finalize script to split recording.mka into
+  # named per-speaker WAVs (tracks/) + meeting.json, using the participants.json above.
+  jmr:
+    image: jitsi/jitsi-multitrack-recorder@sha256:5ac406f16719141269896e012170caf8fd0b1c5611378ba44d49a0803e520661
+    restart: unless-stopped
+    environment:
+      - JMR_DIRECTORY=/data
+      - JMR_FORMAT=mka
+      - JMR_FINALIZE_SCRIPT=/finalize/split-tracks.sh
+      - TZ=${TZ:-UTC}
+    volumes:
+      - /srv/jitsi-recordings/_multitrack:/data:Z
+      - /srv/jitsi-recordings/_bin/split-tracks.sh:/finalize/split-tracks.sh:ro
+    networks:
+      - meet.jitsi
+
+networks:
+  # The external reverse-proxy network your proxy container also joins.
+  # In the reference deployment this was an existing "chatwoot_default" network;
+  # rename to match yours (or `docker network create proxy`).
+  proxy:
+    external: true

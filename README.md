@@ -62,6 +62,15 @@ docker compose -f docker-compose.prod.yml up -d
 └── mongo-init.js             # MongoDB initialization script
 ```
 
+## Recording module (OpenTeams+)
+
+The `recording/` directory adds meeting recording to the bundled Jitsi Meet:
+auto video recording (Jibri) to `mp4`, per-participant audio tracks
+(jitsi-multitrack-recorder) split into named per-speaker `WAV`s for transcription
+pipelines, and a Filebrowser web UI to browse and download recordings. All three
+start automatically, no UI clicks. See [`recording/README.md`](recording/README.md)
+for architecture, install steps, and verification.
+
 ## License
 
 MIT
