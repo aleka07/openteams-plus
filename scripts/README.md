@@ -1,6 +1,6 @@
 # scripts
 
-Helper scripts for the OpenTeams suite (upstream, for local development).
+Helper scripts for the OpenTeams+ suite (upstream, for local development).
 
 ## Files
 

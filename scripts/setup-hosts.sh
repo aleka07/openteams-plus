@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# OpenTeams Local Development — /etc/hosts Setup Script
+# OpenTeams+ Local Development — /etc/hosts Setup Script
 # Adds required *.localhost domains to /etc/hosts so services are reachable
 # via their friendly names (cloud.localhost, chat.localhost, etc.).
 #
@@ -38,12 +38,12 @@ check_root() {
 }
 
 # ---------------------------------------------------------------------------
-# Remove existing OpenTeams block (idempotent)
+# Remove existing OpenTeams+ block (idempotent)
 # ---------------------------------------------------------------------------
 remove_entries() {
   if grep -q "$MARKER" "$HOSTS_FILE" 2>/dev/null; then
     sed -i "/$MARKER/,/$MARKER_END/d" "$HOSTS_FILE"
-    info "Removed existing OpenTeams entries from $HOSTS_FILE."
+    info "Removed existing OpenTeams+ entries from $HOSTS_FILE."
   fi
 }
 
@@ -106,17 +106,17 @@ main() {
   case "${1:-}" in
     --remove|-r)
       remove_entries
-      success "OpenTeams local domains removed from $HOSTS_FILE."
+      success "OpenTeams+ local domains removed from $HOSTS_FILE."
       ;;
     --help|-h)
       echo "Usage: sudo $0 [--remove | --help]"
       echo ""
-      echo "  (no args)   Add OpenTeams domains to /etc/hosts"
-      echo "  --remove    Remove OpenTeams domains from /etc/hosts"
+      echo "  (no args)   Add OpenTeams+ domains to /etc/hosts"
+      echo "  --remove    Remove OpenTeams+ domains from /etc/hosts"
       echo "  --help      Show this help message"
       ;;
     *)
-      info "Adding OpenTeams local domains to $HOSTS_FILE …"
+      info "Adding OpenTeams+ local domains to $HOSTS_FILE …"
       add_entries
       verify
       ;;

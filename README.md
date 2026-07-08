@@ -1,4 +1,4 @@
-# OpenTeams
+# OpenTeams+
 
 A self-hosted collaboration suite with unified authentication.
 
