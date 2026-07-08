@@ -43,7 +43,7 @@ services:
   # Phase 3: per-participant multitrack audio recorder (JMR).
   # Receives media-json from the JVB exporter, writes one Opus track per participant (.mka).
   # Phase 4: on session end JMR runs the finalize script to split recording.mka into
-  # named per-speaker WAVs (tracks/) + meeting.json, using the participants.json above.
+  # named per-speaker OGG/Opus tracks (tracks/) + meeting.json, using the participants.json above.
   jmr:
     image: jitsi/jitsi-multitrack-recorder@sha256:5ac406f16719141269896e012170caf8fd0b1c5611378ba44d49a0803e520661
     restart: unless-stopped

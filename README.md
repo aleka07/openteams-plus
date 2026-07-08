@@ -59,17 +59,21 @@ docker compose -f docker-compose.prod.yml up -d
 ├── docker-compose.prod.yml   # Production (HTTPS + Let's Encrypt)
 ├── env.local.example         # Local environment template
 ├── env.example               # Production environment template
-└── mongo-init.js             # MongoDB initialization script
+├── mongo-init.js             # MongoDB initialization script
+└── recording/                # OpenTeams+ meeting-recording module (see below)
 ```
 
 ## Recording module (OpenTeams+)
 
-The `recording/` directory adds meeting recording to the bundled Jitsi Meet:
+The `recording/` directory adds meeting recording to the bundled Jitsi Meet, and
+is production-tested against `docker-jitsi-meet` stable-11031:
 auto video recording (Jibri) to `mp4`, per-participant audio tracks
-(jitsi-multitrack-recorder) split into named per-speaker `WAV`s for transcription
-pipelines, and a Filebrowser web UI to browse and download recordings. All three
-start automatically, no UI clicks. See [`recording/README.md`](recording/README.md)
-for architecture, install steps, and verification.
+(jitsi-multitrack-recorder) split into named per-speaker `OGG/Opus` tracks for
+transcription/STT pipelines, and a Filebrowser web UI to browse and download
+recordings. All of it starts automatically, no UI clicks. A root cron sweep
+handles retention and a user cron writes a periodic health snapshot. See
+[`recording/README.md`](recording/README.md) for architecture, install steps, and
+verification.
 
 ## License
 
