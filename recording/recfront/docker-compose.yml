@@ -1,7 +1,7 @@
 # Recordings web front (Filebrowser) for the OpenTeams+ recording module.
 #
 # Serves /srv/jitsi-recordings read-only over a browser UI: browse folders,
-# stream the combined mp4, download per-speaker WAVs and the json metadata.
+# stream the combined mp4, download per-speaker OGG/Opus tracks and the json metadata.
 #
 # Run it as its own stack next to the jitsi stack:
 #     docker compose -f docker-compose.yml up -d

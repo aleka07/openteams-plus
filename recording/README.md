@@ -12,13 +12,18 @@ no UI clicks:
 - **Per-speaker audio tracks + participants journal** — the
   **jitsi-multitrack-recorder (JMR)** captures one Opus track per participant
   directly from the videobridge, and after each meeting `split-tracks.sh` splits it
-  into named, timeline-aligned `WAV`s (`tracks/NN_Name.wav`) plus a
-  `participants.json` / `meeting.json` journal. This is the raw material for
-  diarized transcription / STT pipelines: one clean channel per speaker, all sharing
-  `t=0` = recording start.
+  into named, timeline-aligned `OGG/Opus` tracks (`tracks/NN_Name.ogg`, ~64 kbps
+  VoIP — small and STT-friendly) plus a `participants.json` / `meeting.json` journal.
+  This is the raw material for diarized transcription / STT pipelines: one clean
+  channel per speaker, all sharing `t=0` = recording start. The meeting dir is
+  renamed to `_multitrack/<YYYY-MM-DD_HHMMSS>_<room>` at finalize (the meeting uuid
+  lives on inside `meeting.json`).
 - **Web UI to browse and download** — a **Filebrowser** container serves the whole
   recordings tree read-only: browse folders, stream the mp4 in-browser, download the
-  WAVs and json. Single login in front of everything.
+  Opus tracks and json. Single login in front of everything.
+- **Retention + health monitoring** — a root cron sweep (`cleanup-recordings.sh`)
+  prunes video/audio past their retention windows, and a user cron (`check-health.sh`)
+  writes a `_status/status.json` snapshot of container/disk health every 10 minutes.
 
 ## 2. Architecture
 
@@ -36,7 +41,8 @@ no UI clicks:
                            jibri                                    recording.mka (1 track/participant)
                               │                                                  │
                         finalize.sh                                     split-tracks.sh (JMR finalize)
-                     combined/recording.mp4                            tracks/NN_Name.wav + meeting.json
+                     combined/recording.mp4                       tracks/NN_Name.ogg + meeting.json
+                              │                                   (dir renamed <ts>_<room>)
                               │                                                  ▲
               mod_participant_log ──► _meta/<meetingId>.json (names, join/leave) ┘
 
@@ -56,8 +62,9 @@ are ours; everything else is upstream Jitsi wired together via config.
   (headless Chrome + ffmpeg). The JMR audio path is cheap by comparison (audio only,
   no browser) and scales to many concurrent meetings — so a host that can only afford
   one concurrent video recording still gets per-participant audio for every meeting.
-- **Disk**: roughly 1–3 GB/hour per 720p video + ~30 MB/hour per participant of
-  audio. Plan retention/rotation.
+- **Disk**: roughly 1–3 GB/hour per 720p video. Audio is Opus at ~64 kbps, so both
+  the multitrack `.mka` and the split `.ogg` tracks land around ~30 MB/hour per
+  participant each. Plan retention/rotation (see §4.9 / §5).
 - **Firewall**: JVB media is UDP 10000, direct to the host (it does not traverse the
   reverse proxy).
 
@@ -152,6 +159,50 @@ network, and set the recordings root / `<RECORDINGS_GID>` to match your host.
   `recfront:80` — on the shared proxy network.
 - Deploy the recordings web UI: `cd recfront && docker compose up -d`. Log into
   Filebrowser once and change the default admin password immediately.
+- Hide the service dirs (`_multitrack/_meta`, `_status`, `_bin`) from the browse UI
+  with per-user Filebrowser rules. A non-regex rule is a prefix match (covers the dir
+  and everything under it, paths relative to the user's scope); disallowed paths drop
+  out of listings, search and downloads alike. Two ways to add them:
+  - **Web UI** (no downtime): Settings → User Management → the user → *Rules* →
+    add `/_bin`, `/_status`, `/_multitrack/_meta` (leave *Regex* and *Allow* unchecked).
+  - **CLI** (scriptable): the BoltDB is exclusively locked by the running server, so
+    stop the container first and run a one-off:
+
+    ```bash
+    docker stop recfront
+    for p in /_bin /_status /_multitrack/_meta; do
+      docker run --rm -v "$(pwd)/recfront/data:/database" \
+        --entrypoint /bin/filebrowser filebrowser/filebrowser:v2.63.18 \
+        -d /database/filebrowser.db rules add -u <USERNAME> "$p"
+    done
+    docker start recfront
+    ```
+
+### 4.9 Retention + health monitoring (Phase 5)
+
+Retention runs as **root** (needs to delete Jibri's uid-999 dirs); the health check
+runs as an unprivileged user in the `docker` group (e.g. `alikhan`).
+
+```bash
+# scripts into the recordings _bin (host)
+sudo install -m 0755 retention/cleanup-recordings.sh /srv/jitsi-recordings/_bin/
+sudo install -m 0755 monitoring/check-health.sh      /srv/jitsi-recordings/_bin/
+
+# retention config (optional; defaults are baked into the script)
+sudo install -m 0644 retention/retention.conf.example \
+     /srv/jitsi-recordings/_bin/retention.conf
+# edit VIDEO_RETENTION_DAYS / AUDIO_RETENTION_DAYS to taste (0 = keep forever)
+
+# root cron for the daily 04:30 sweep
+sudo install -m 0644 retention/cron.example /etc/cron.d/jitsi-recordings-retention
+
+# user cron for the 10-minute health snapshot (run as the docker-group user)
+crontab -l 2>/dev/null | { cat; cat monitoring/cron.example; } | crontab -
+```
+
+Both scripts create `/srv/jitsi-recordings/_status/` on first run (`status.json`,
+`health.log`, `cleanup.log`). Dry-run the sweep before trusting it:
+`sudo /srv/jitsi-recordings/_bin/cleanup-recordings.sh --dry-run` (see `_status/cleanup.log`).
 
 ## 5. Gotchas (production lessons — read before you debug)
 
@@ -187,17 +238,22 @@ network, and set the recordings root / `<RECORDINGS_GID>` to match your host.
 ├── <room>/
 │   └── <YYYY-MM-DD_HHMMSS>/
 │       └── combined/
-│           ├── recording.mp4          # Jibri combined video (finalize.sh)
-│           └── metadata.json          # Jibri session metadata
-└── _multitrack/
-    ├── _meta/
-    │   └── <meetingId>.json           # live participants journal (mod_participant_log)
-    └── <meetingId>/
-        ├── recording.mka              # JMR multitrack (one Opus track per participant)
-        ├── tracks/
-        │   ├── 01_Alice.wav           # per-speaker WAV, aligned to t=0 (split-tracks.sh)
-        │   └── 02_Bob.wav
-        └── meeting.json               # summary: participants + tracks
+│           ├── recording.mp4              # Jibri combined video (finalize.sh)
+│           └── metadata.json              # Jibri session metadata
+├── _multitrack/
+│   ├── _meta/
+│   │   └── <meetingId>.json               # live participants journal (mod_participant_log)
+│   └── <YYYY-MM-DD_HHMMSS>_<room>/        # renamed at finalize (uuid is in meeting.json)
+│       ├── recording.mka                  # JMR multitrack (one Opus track per participant)
+│       ├── tracks/
+│       │   ├── 01_Alice.ogg               # per-speaker Opus, aligned to t=0 (split-tracks.sh)
+│       │   └── 02_Bob.ogg
+│       └── meeting.json                   # summary: participants + tracks
+├── _bin/                                  # host scripts (split-tracks, cleanup, check-health)
+└── _status/                               # monitoring/retention state (Phase 5)
+    ├── status.json                        # latest health snapshot (check-health.sh)
+    ├── health.log                         # one line per health run
+    └── cleanup.log                        # retention sweep log
 ```
 
 ## 7. Verification checklist
@@ -214,10 +270,13 @@ The exact log lines proving each link of the chain works:
   - `Adding connect for transcriber` (the Colibri2 connect that starts the export).
 - **JMR** (`docker compose logs jmr`):
   - one **track start** line per participant, then on session end
-    `[split-tracks] ...` progress and `Finalize script completed`.
+    `[split-tracks] ...` progress, a `[split-tracks] renamed <id> -> <ts>_<room>`
+    line, and `Finalize script completed`.
 - **On disk**: `combined/recording.mp4` appears under `<room>/<ts>/`, and
-  `_multitrack/<meetingId>/tracks/NN_Name.wav` + `meeting.json` appear after the
-  meeting ends.
+  `_multitrack/<YYYY-MM-DD_HHMMSS>_<room>/tracks/NN_Name.ogg` + `meeting.json` appear
+  after the meeting ends.
+- **Monitoring**: `_status/status.json` appears/updates within ~10 min (check
+  `"ok": true` and `generatedAt`); the retention sweep logs to `_status/cleanup.log`.
 
 ## Credits
 

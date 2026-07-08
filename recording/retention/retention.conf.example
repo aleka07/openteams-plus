@@ -1,0 +1,15 @@
+# retention.conf  (OpenTeams+ Phase 5)
+#
+# Optional overrides for cleanup-recordings.sh. Sourced as bash, so plain
+# VAR=value lines only. Install as $ROOT/_bin/retention.conf:
+#   sudo install -m 0644 retention.conf.example /srv/jitsi-recordings/_bin/retention.conf
+
+# Recordings root (must contain a _multitrack subdir, or cleanup refuses to run).
+ROOT="/srv/jitsi-recordings"
+
+# Keep Jibri video sessions ($ROOT/<room>/<ts>/) this many days. 0 = keep forever.
+VIDEO_RETENTION_DAYS=14
+
+# Keep JMR audio meetings ($ROOT/_multitrack/<dir>/) and their participants
+# journal this many days. 0 = keep forever.
+AUDIO_RETENTION_DAYS=365

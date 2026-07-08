@@ -1,0 +1,7 @@
+# jitsi-recordings health check  (OpenTeams+ Phase 5)
+#
+# User crontab line (install via `crontab -e` as the user in the docker group,
+# e.g. alikhan). Runs every 10 minutes, no sudo, no alerting — it only refreshes
+# $STATUS_DIR/status.json + appends to health.log.
+
+*/10 * * * * /srv/jitsi-recordings/_bin/check-health.sh

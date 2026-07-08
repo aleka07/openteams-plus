@@ -1,0 +1,9 @@
+# jitsi-recordings-retention  (OpenTeams+ Phase 5)
+#
+# /etc/cron.d drop-in: run the retention sweep daily at 04:30 as root.
+# Install:
+#   sudo install -m 0644 cron.example /etc/cron.d/jitsi-recordings-retention
+#
+# (cron.d lines carry a user field; keep the file mode 0644 and root-owned.)
+
+30 4 * * * root /srv/jitsi-recordings/_bin/cleanup-recordings.sh >> /dev/null 2>&1

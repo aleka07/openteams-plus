@@ -2,7 +2,10 @@
 # split-tracks.sh  (OpenTeams+ Phase 4)
 #
 # JMR finalize-script: turns a per-meeting multitrack recording.mka into one named
-# WAV per speaker, each aligned to the common meeting timeline (t=0 = recording start).
+# OGG/Opus track per speaker, each aligned to the common meeting timeline
+# (t=0 = recording start). Tracks are re-encoded to Opus (~64 kbps VoIP) — small and
+# STT-friendly. As a last step it renames the meeting dir to <start>_<room> (the uuid
+# lives on inside meeting.json for correlation).
 #
 # Invoked by JMR as:   split-tracks.sh <MEETING_ID> <DIR> <FORMAT>
 #   $1 MEETING_ID : jicofo/prosody meetingId (also the participants.json key)
@@ -15,7 +18,7 @@
 # script degrades gracefully to endpointId names.
 #
 # Outputs, under $DIR:
-#   tracks/<NN>_<name>.wav   one per audio track
+#   tracks/<NN>_<name>.ogg   one Opus track per audio track
 #   meeting.json             summary (participants + tracks)
 
 set -uo pipefail
@@ -99,7 +102,7 @@ for ((ai = 0; ai < n; ai++)); do
     used[$name]=1
 
     nn="$(printf '%02d' $((ai + 1)))"
-    out="$OUTDIR/${nn}_${name}.wav"
+    out="$OUTDIR/${nn}_${name}.ogg"
 
     # ms offset that aligns this track to the common meeting timeline
     delay="$(printf '%s\n' "$start_time" | awk '{printf "%d", ($1*1000)+0.5}')"
@@ -107,21 +110,22 @@ for ((ai = 0; ai < n; ai++)); do
 
     echo "[split-tracks] a:$ai eid=$eid name=$name start=${start_time}s delay=${delay}ms -> $out" >&2
 
+    # Always re-encode to Opus (~64 kbps VoIP); channel layout kept as-is.
     if [[ "$delay" -eq 0 ]]; then
         ffmpeg -hide_banner -loglevel error -y -i "$MKA" \
-            -map "0:a:$ai" -c:a pcm_s16le "$out" \
+            -map "0:a:$ai" -c:a libopus -b:a 64k -vbr on -application voip "$out" \
             || { echo "[split-tracks] WARN ffmpeg failed for a:$ai" >&2; continue; }
     else
         ffmpeg -hide_banner -loglevel error -y -i "$MKA" \
             -filter_complex "[0:a:$ai]adelay=${delay}:all=1[a]" -map "[a]" \
-            -c:a pcm_s16le "$out" \
+            -c:a libopus -b:a 64k -vbr on -application voip "$out" \
             || { echo "[split-tracks] WARN ffmpeg failed for a:$ai" >&2; continue; }
     fi
 
     part="$(printf '%s' "$PART_JSON" | jq -c --arg eid "$eid" '(.participants // [])[] | select(.endpointId==$eid)' 2>/dev/null | head -n1)"
     [[ -z "$part" ]] && part='null'
     entry="$(jq -n \
-        --arg file "tracks/${nn}_${name}.wav" \
+        --arg file "tracks/${nn}_${name}.ogg" \
         --arg eid "$eid" \
         --arg dn "${dn:-}" \
         --arg st "$start_time" \
@@ -148,4 +152,51 @@ printf '%s' "$PART_JSON" | jq \
       tracks: $tracks}' \
     > "$DIR/meeting.json"
 
-echo "[split-tracks] done: $(find "$OUTDIR" -maxdepth 1 -name '*.wav' | wc -l | tr -d ' ') track(s) in $OUTDIR" >&2
+echo "[split-tracks] done: $(find "$OUTDIR" -maxdepth 1 -name '*.ogg' | wc -l | tr -d ' ') track(s) in $OUTDIR" >&2
+
+# --- best-effort: rename meeting dir to <YYYY-MM-DD_HHMMSS>_<room> (sibling of $DIR) --
+# Purely cosmetic: the uuid stays inside meeting.json (meeting_id) for correlation, so
+# any failure here must NOT fail the (already successful) split. WARN + exit 0.
+rename_meeting_dir() {
+    [[ -d "$DIR" ]] || { echo "[split-tracks] WARN dir gone, skip rename: $DIR" >&2; return 0; }
+
+    # room: participants.json .room, strip any @-part, sanitize; fall back to id[:8].
+    local room
+    room="$(printf '%s' "$PART_JSON" | jq -r '(.room // "") | tostring' 2>/dev/null)"
+    room="${room%%@*}"
+    room="$(sanitize "$room")"
+    [[ -z "$room" ]] && room="$(printf '%s' "$MEETING_ID" | cut -c1-8)"
+
+    # meeting start = now - durationSec, local TZ (Asia/Almaty in the container).
+    # Guard empty / non-integer dur; fall back to now on any date error.
+    local secs start
+    secs="${dur%.*}"
+    [[ "$secs" =~ ^[0-9]+$ ]] || secs=0
+    start="$(date -d "@$(( $(date +%s) - secs ))" +%Y-%m-%d_%H%M%S 2>/dev/null)"
+    [[ -z "$start" ]] && start="$(date +%Y-%m-%d_%H%M%S)"
+
+    local parent base target k
+    parent="$(dirname "$DIR")"
+    if [[ -z "$parent" || "$parent" == "$DIR" ]]; then
+        echo "[split-tracks] WARN cannot compute rename target for $DIR" >&2
+        return 0
+    fi
+    base="${start}_${room}"
+    target="$parent/$base"
+
+    # collision -> _2, _3 ...
+    k=2
+    while [[ -e "$target" && "$target" != "$DIR" ]]; do
+        target="$parent/${base}_${k}"; k=$((k + 1))
+    done
+    [[ "$target" == "$DIR" ]] && return 0
+
+    if mv "$DIR" "$target"; then
+        echo "[split-tracks] renamed $DIR -> $target" >&2
+    else
+        echo "[split-tracks] WARN rename failed: $DIR -> $target" >&2
+    fi
+    return 0
+}
+rename_meeting_dir
+exit 0
