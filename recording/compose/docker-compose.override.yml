@@ -43,6 +43,14 @@ services:
   # as /data/_meta. Prosody runs as uid 100, so that host dir must be chowned
   # 100:<RECORDINGS_GID> and be group-writable (see README).
   prosody:
+    environment:
+      # mod_jibri_autostart toggles (see prosody-plugins-custom/mod_jibri_autostart.lua):
+      #   AUTOSTART_JIBRI      - auto-start combined jibri video recording (mp4)
+      #   AUTOSTART_MULTITRACK - auto-enable per-participant audio export to JMR
+      # Change in .env, then `docker compose ... up -d prosody` (restarts prosody only;
+      # do it between meetings - active XMPP sessions reconnect but recordings restart).
+      - AUTOSTART_JIBRI=${AUTOSTART_JIBRI:-1}
+      - AUTOSTART_MULTITRACK=${AUTOSTART_MULTITRACK:-1}
     volumes:
       - /srv/jitsi-recordings/_multitrack/_meta:/meta:Z
 
