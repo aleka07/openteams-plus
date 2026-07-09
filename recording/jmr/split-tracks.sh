@@ -111,12 +111,14 @@ for ((ai = 0; ai < n; ai++)); do
     echo "[split-tracks] a:$ai eid=$eid name=$name start=${start_time}s delay=${delay}ms -> $out" >&2
 
     # Always re-encode to Opus (~64 kbps VoIP); channel layout kept as-is.
+    # nice -n 19: finalize may run while the meeting is still live (session split on
+    # ws reconnect); encoding must not starve JVB/JMR or their ping times out again.
     if [[ "$delay" -eq 0 ]]; then
-        ffmpeg -hide_banner -loglevel error -y -i "$MKA" \
+        nice -n 19 ffmpeg -nostdin -hide_banner -loglevel error -y -i "$MKA" \
             -map "0:a:$ai" -c:a libopus -b:a 64k -vbr on -application voip "$out" \
             || { echo "[split-tracks] WARN ffmpeg failed for a:$ai" >&2; continue; }
     else
-        ffmpeg -hide_banner -loglevel error -y -i "$MKA" \
+        nice -n 19 ffmpeg -nostdin -hide_banner -loglevel error -y -i "$MKA" \
             -filter_complex "[0:a:$ai]adelay=${delay}:all=1[a]" -map "[a]" \
             -c:a libopus -b:a 64k -vbr on -application voip "$out" \
             || { echo "[split-tracks] WARN ffmpeg failed for a:$ai" >&2; continue; }
@@ -167,13 +169,19 @@ rename_meeting_dir() {
     room="$(sanitize "$room")"
     [[ -z "$room" ]] && room="$(printf '%s' "$MEETING_ID" | cut -c1-8)"
 
-    # meeting start = now - durationSec, local TZ (Asia/Almaty in the container).
-    # Guard empty / non-integer dur; fall back to now on any date error.
-    local secs start
-    secs="${dur%.*}"
-    [[ "$secs" =~ ^[0-9]+$ ]] || secs=0
-    start="$(date -d "@$(( $(date +%s) - secs ))" +%Y-%m-%d_%H%M%S 2>/dev/null)"
-    [[ -z "$start" ]] && start="$(date +%Y-%m-%d_%H%M%S)"
+    # meeting start, local TZ (container TZ). Primary source is the mka creation_time
+    # tag (exact session start, matches JMR logs to the ms). The old now-durationSec
+    # fallback drifts by however long encoding took, so it lies when finalize runs
+    # late; keep it only as a fallback.
+    local ct secs start=""
+    ct="$(ffprobe -v quiet -show_entries format_tags=creation_time -of csv=p=0 "$MKA" 2>/dev/null)"
+    [[ -n "$ct" ]] && start="$(date -d "$ct" +%Y-%m-%d_%H%M%S 2>/dev/null)"
+    if [[ -z "$start" ]]; then
+        secs="${dur%.*}"
+        [[ "$secs" =~ ^[0-9]+$ ]] || secs=0
+        start="$(date -d "@$(( $(date +%s) - secs ))" +%Y-%m-%d_%H%M%S 2>/dev/null)"
+        [[ -z "$start" ]] && start="$(date +%Y-%m-%d_%H%M%S)"
+    fi
 
     local parent base target k
     parent="$(dirname "$DIR")"

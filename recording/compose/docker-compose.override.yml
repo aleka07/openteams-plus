@@ -32,6 +32,12 @@ services:
       # requires host kernel module snd-aloop (linux-modules-extra)
       - /dev/snd:/dev/snd
 
+  # cpu_shares 2048 (default 1024): under CPU saturation JVB/JMR must win the CPU, or
+  # the JVB->JMR websocket misses its 3s ping deadline (hardcoded in jicofo) and the
+  # multitrack recording splits into per-reconnect sessions.
+  jvb:
+    cpu_shares: 2048
+
   # Phase 4: prosody writes live participants.json into the shared _meta staging dir.
   # /meta maps to /srv/jitsi-recordings/_multitrack/_meta on the host, which JMR sees
   # as /data/_meta. Prosody runs as uid 100, so that host dir must be chowned
@@ -47,6 +53,7 @@ services:
   jmr:
     image: jitsi/jitsi-multitrack-recorder@sha256:5ac406f16719141269896e012170caf8fd0b1c5611378ba44d49a0803e520661
     restart: unless-stopped
+    cpu_shares: 2048  # see jvb note above
     environment:
       - JMR_DIRECTORY=/data
       - JMR_FORMAT=mka
